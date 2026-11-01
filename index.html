@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sistem Persediaan Produk Perishable Berbasis FEFO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+
+<section id="login" hidden class="card-login">
+  <h1>Masuk ke sistem persediaan</h1>
+  <p class="sub">Gunakan akun yang dibuat oleh owner usaha.</p>
+  <label for="em">Email</label><input id="em" type="email" autocomplete="username">
+  <label for="pw">Kata sandi</label><input id="pw" type="password" autocomplete="current-password">
+  <p><button id="masuk">Masuk</button></p>
+</section>
+
+<div id="app" hidden>
+  <header>
+    <h1>Persediaan Produk Perishable (FEFO)</h1>
+    <div class="bar"><span class="chip" id="siapa"></span><button class="alt" id="keluar">Keluar</button></div>
+  </header>
+  <nav id="tabs" aria-label="Menu">
+    <button data-p="stok">Stok</button>
+    <button data-p="produksi">Produksi</button>
+    <button data-p="penjualan">Penjualan</button>
+    <button data-p="laporan" data-owner>Laporan</button>
+    <button data-p="produk" data-owner>Produk</button>
+  </nav>
+
+  <section id="stok" class="panel"><h2>Stok persediaan saat ini</h2><div id="stokList"></div></section>
+
+  <section id="produksi" class="panel" hidden>
+    <h2>Pencatatan produksi</h2>
+    <label for="pp">Jenis produk</label><select id="pp"></select>
+    <label for="pq">Jumlah produksi (unit)</label><input id="pq" type="number" min="1" value="10">
+    <p><button id="pgo">Simpan data produksi</button></p>
+  </section>
+
+  <section id="penjualan" class="panel" hidden>
+    <h2>Pencatatan penjualan</h2>
+    <label for="sp">Jenis produk</label><select id="sp"></select>
+    <label for="sq">Jumlah penjualan (unit)</label><input id="sq" type="number" min="1" value="1">
+    <p><button id="sgo">Simpan data penjualan</button></p>
+  </section>
+
+  <section id="laporan" class="panel" hidden>
+    <h2>Laporan dan analisis</h2>
+    <div class="row"><div><label for="dr">Dari</label><input id="dr" type="date"></div><div><label for="sd">Sampai</label><input id="sd" type="date"></div><button id="lgo">Tampilkan laporan</button></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="narasi" id="narasi" hidden></div>
+    <h3>Pola penjualan dan produk kedaluwarsa per hari</h3>
+    <div class="legend"><em>Terjual</em><em class="w">Kedaluwarsa</em></div>
+    <div id="wd"></div>
+    <h3>Rekapitulasi harian</h3>
+    <div class="scroll"><table><thead><tr><th>Tanggal</th><th>Diproduksi</th><th>Terjual</th><th>Kedaluwarsa</th><th>Pendapatan</th><th>Kerugian</th></tr></thead><tbody id="wk"></tbody></table></div>
+    <p class="note">Laba bersih = pendapatan dikurangi total biaya produksi. Kerugian produk kedaluwarsa sudah termasuk di biaya produksi.</p>
+  </section>
+
+  <section id="produk" class="panel" hidden>
+    <h2>Kelola produk</h2>
+    <div class="scroll"><table class="edit"><thead><tr><th>Nama</th><th>Harga jual</th><th>Biaya produksi</th><th>Masa jual (hari)</th><th>Aktif</th><th></th></tr></thead><tbody id="prodList"></tbody></table></div>
+    <p class="note">Perubahan harga dan biaya hanya berlaku untuk produksi dan penjualan berikutnya. Laporan lama tidak berubah.</p>
+  </section>
+</div>
+
+<p id="msg" role="status" aria-live="polite"></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
