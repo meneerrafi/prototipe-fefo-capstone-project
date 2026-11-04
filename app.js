@@ -21,7 +21,12 @@ async function mulai() {
 
 $("masuk").onclick = async function () {
   var r = await sb.auth.signInWithPassword({ email: $("em").value.trim(), password: $("pw").value });
-  if (r.error) return say("Email atau kata sandi salah.", false);
+  if (r.error) {
+    var m = r.error.message || "";
+    return say(/invalid login/i.test(m) ? "Email atau kata sandi salah."
+      : /not confirmed/i.test(m) ? "Akun belum dikonfirmasi. Hubungi owner."
+      : "Login gagal: " + m, false);
+  }
   say("", true); tampilApp(r.data.user);
 };
 $("keluar").onclick = async function () { await sb.auth.signOut(); location.reload(); };
