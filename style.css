@@ -66,3 +66,35 @@ h3{font:600 1.05rem Fraunces,Georgia,serif;margin:18px 0 6px}
 table.edit input{padding:6px 8px;min-width:90px}
 table.edit input[type=checkbox]{width:auto;min-width:0}
 table.edit td{text-align:left}
+
+/* Tema imut dan manis (pink dan hijau) */
+:root{--bg:#fff7fa;--line:#f4dbe5}
+body{min-height:100vh;background:radial-gradient(circle at 100% 0,var(--sakura-soft),transparent 45%),radial-gradient(circle at 0 100%,var(--matcha-soft),transparent 45%),var(--bg);background-attachment:fixed}
+h1,h2,h3,.qty,.kpi b{font-family:"Baloo 2",Fraunces,Georgia,sans-serif}
+.brand{display:flex;gap:12px;align-items:center}
+.logo-app{width:46px;height:46px;border-radius:50%;background:var(--sakura-soft);display:grid;place-items:center;font-size:26px;box-shadow:0 3px 0 rgba(217,98,138,.28)}
+.tagline{margin:0;color:var(--muted);font-size:.9rem}
+.card-login{text-align:left}
+.card-login .logo-app{margin:0 auto 8px;width:68px;height:68px;font-size:38px}
+.card-login h1,.card-login .sub{text-align:center;margin-inline:auto}
+section{border-radius:24px;border:2px solid var(--line);box-shadow:0 5px 0 var(--sakura-soft)}
+button{border-radius:999px;padding:10px 20px;box-shadow:0 3px 0 rgba(0,0,0,.18);transition:transform .08s}
+button:hover{transform:translateY(-1px)}
+button:active{transform:translateY(2px);box-shadow:none}
+button.alt,nav#tabs button{box-shadow:none}
+nav#tabs button.on{box-shadow:0 3px 0 rgba(0,0,0,.18)}
+input,select{border-radius:14px;border:2px solid var(--line)}
+.chip,.tag{border-radius:999px}
+.kpi{border-radius:18px;border:2px solid var(--line);background:var(--bg)}
+.narasi{border-radius:18px;border:2px dashed var(--sakura)}
+.shelf i{height:12px;border-radius:999px}
+
+/* Tambahan v2 */
+.mini{padding:6px 12px;font-size:.88rem}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+button.danger{background:var(--bad)}
+textarea{width:100%;font:inherit;padding:10px;border-radius:14px;border:2px solid var(--line);background:var(--bg);color:var(--ink)}
+.lab{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:.82rem}
+.lab.best{background:var(--matcha-soft);color:var(--matcha)}
+.lab.worst{background:var(--bad-soft);color:var(--bad)}
+code{background:var(--sakura-soft);padding:1px 6px;border-radius:6px}

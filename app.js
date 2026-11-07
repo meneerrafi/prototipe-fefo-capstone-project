@@ -1,15 +1,26 @@
-/* Aplikasi web persediaan FEFO. Semua perubahan data lewat fungsi di database (setup.sql).
+/* Aplikasi web persediaan FEFO (v2). Semua perubahan data lewat fungsi di database.
    Hak akses sebenarnya dijaga oleh database, bukan oleh tampilan ini. */
 
 var sb = supabase.createClient(APP_CONFIG.SUPABASE_URL, APP_CONFIG.SUPABASE_ANON_KEY);
 var me = null;
+
+// Nama, slogan, dan logo diatur di tema.js
+var TEMA = window.TEMA || { nama: "StokManis", tagline: "Catatan stok dessert", logo: "\uD83C\uDF61" };
+document.title = TEMA.nama;
+document.querySelectorAll(".nama-app").forEach(function (e) { e.textContent = TEMA.nama; });
+document.querySelectorAll(".tagline-app").forEach(function (e) { e.textContent = TEMA.tagline; });
+document.querySelectorAll(".logo-app").forEach(function (e) { e.textContent = TEMA.logo; });
+
 var HR = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
 var $ = function (i) { return document.getElementById(i); };
 var rp = function (n) { return "Rp" + Math.round(n).toLocaleString("id-ID"); };
 var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); };
 var hariIni = function () { return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Jakarta" }); };
+var tambahHari = function (s, n) { return new Date(Date.parse(s) + n * 864e5).toISOString().slice(0, 10); };
 var selisihHari = function (a, b) { return Math.round((Date.parse(a) - Date.parse(b)) / 864e5); };
 var tgl = function (s) { return new Date(s + "T00:00:00").toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "short" }); };
+var jam = function (s) { return new Date(s).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" }); };
+var pct = function (a, b) { return b ? Math.round(a / b * 100) : 0; };
 function say(t, ok) { var m = $("msg"); m.textContent = t; m.className = ok ? "ok" : "err"; }
 
 // ---------- Login ----------
@@ -49,7 +60,10 @@ function buka(nama) {
   document.querySelectorAll("#tabs button").forEach(function (b) { b.classList.toggle("on", b.dataset.p === nama); });
   say("", true);
   if (nama === "stok") tampilStok();
-  if (nama === "laporan") isiTanggalLaporan();
+  if (nama === "penjualan") tampilHariIni();
+  if (nama === "laporan" && !$("sd").value) { setRentang(13); }
+  if (nama === "koreksi") { if (!$("kd").value) $("kd").value = hariIni(); muatKoreksi(); muatAudit(); }
+  if (nama === "qris" && !$("qs").value) { $("qs").value = hariIni(); $("qd").value = tambahHari(hariIni(), -6); }
   if (nama === "produk") tampilProduk();
 }
 
@@ -90,47 +104,201 @@ $("pgo").onclick = async function () {
   say("Data produksi " + q + " unit " + $("pp").selectedOptions[0].text + " berhasil disimpan.", true);
 };
 
+$("sm").onchange = function () { $("refBox").hidden = $("sm").value !== "qris"; };
+
 $("sgo").onclick = async function () {
-  var q = Math.floor(+$("sq").value);
-  var r = await sb.rpc("catat_penjualan", { p_product: +$("sp").value, p_jumlah: q });
+  var q = Math.floor(+$("sq").value), qris = $("sm").value === "qris";
+  var r = await sb.rpc("catat_penjualan", { p_product: +$("sp").value, p_jumlah: q, p_metode: $("sm").value, p_ref: qris ? $("sref").value : null });
   if (r.error) return say(r.error.message, false);
   var rinci = r.data.rincian.map(function (x) { return x.jumlah + " unit dari batch " + tgl(x.tanggal_produksi); }).join(", ");
   say("Penjualan " + q + " unit " + $("sp").selectedOptions[0].text + " dicatat dengan urutan FEFO: " + rinci + ". Pendapatan " + rp(r.data.pendapatan) + ".", true);
+  $("sref").value = "";
+  tampilHariIni();
 };
 
+// Karyawan hanya bisa melihat penjualan hari ini (dibatasi oleh database).
+async function tampilHariIni() {
+  var r = await sb.from("sales").select("id,jumlah,harga_per_unit,metode_bayar,ref_qris,created_at,products(nama)")
+    .eq("tanggal", hariIni()).order("created_at", { ascending: false });
+  if (r.error) return say("Daftar hari ini gagal dimuat: " + r.error.message, false);
+  var u = 0, t = 0;
+  $("hariIniList").innerHTML = (r.data || []).map(function (x) {
+    u += x.jumlah; t += x.jumlah * x.harga_per_unit;
+    return "<tr><td>" + jam(x.created_at) + "</td><td>" + esc(x.products.nama) + "</td><td>" + x.jumlah + "</td><td>" +
+      (x.metode_bayar === "qris" ? "QRIS " + esc(x.ref_qris || "") : "Tunai") + "</td><td>" + rp(x.jumlah * x.harga_per_unit) + "</td></tr>";
+  }).join("");
+  $("hariIniTot").textContent = u ? "Total hari ini: " + u + " unit, " + rp(t) : "Belum ada penjualan hari ini.";
+}
+
 // ---------- Laporan (owner) ----------
-function isiTanggalLaporan() {
-  if ($("sd").value) return;
-  var s = hariIni(), d = new Date(Date.parse(s) - 13 * 864e5).toISOString().slice(0, 10);
-  $("sd").value = s; $("dr").value = d;
+function setRentang(n) { var s = hariIni(); $("sd").value = s; $("dr").value = tambahHari(s, -n); }
+document.querySelectorAll("[data-rentang]").forEach(function (b) {
+  b.onclick = function () {
+    var v = b.dataset.rentang, s = hariIni();
+    if (v === "bulan") { $("sd").value = s; $("dr").value = s.slice(0, 8) + "01"; } else setRentang(+v - 1);
+    $("lgo").click();
+  };
+});
+
+function ringkas(rows) {
+  var o = { prod: 0, sold: 0, wq: 0, rev: 0, cost: 0, loss: 0, ru: 0, rn: 0,
+    wd: [0,1,2,3,4,5,6].map(function () { return { n: 0, u: 0, r: 0, w: 0 }; }) };
+  rows.forEach(function (x) {
+    o.prod += x.diproduksi; o.sold += x.terjual; o.wq += x.kedaluwarsa; o.rev += +x.pendapatan;
+    o.cost += +x.biaya_produksi; o.loss += +x.kerugian; o.ru += x.refund_unit; o.rn += +x.refund_nilai;
+    if (x.diproduksi > 0 || x.terjual > 0) {
+      var w = o.wd[new Date(x.tanggal + "T00:00:00").getDay()];
+      w.n++; w.u += x.terjual; w.r += +x.pendapatan; w.w += x.kedaluwarsa;
+    }
+  });
+  return o;
+}
+
+function arah(a, b, nama) {
+  if (!b) return null;
+  var p = Math.round((a - b) / Math.abs(b) * 100);
+  if (p === 0) return nama + " tidak berubah";
+  return nama + (p > 0 ? " naik " : " turun ") + Math.abs(p) + "%";
 }
 
 $("lgo").onclick = async function () {
-  var r = await sb.rpc("laporan_harian", { p_dari: $("dr").value, p_sampai: $("sd").value });
+  var dari = $("dr").value, sampai = $("sd").value;
+  if (!dari || !sampai || dari > sampai) return say("Rentang tanggal tidak valid.", false);
+  var len = selisihHari(sampai, dari) + 1;
+  var r = await sb.rpc("laporan_harian", { p_dari: dari, p_sampai: sampai });
   if (r.error) return say(r.error.message, false);
-  var rows = r.data || [], prod = 0, sold = 0, wq = 0, rev = 0, cost = 0, loss = 0;
-  var ws = [0,0,0,0,0,0,0], ww = [0,0,0,0,0,0,0];
-  rows.forEach(function (x) {
-    prod += x.diproduksi; sold += x.terjual; wq += x.kedaluwarsa; rev += +x.pendapatan; cost += +x.biaya_produksi; loss += +x.kerugian;
-    var d = new Date(x.tanggal + "T00:00:00").getDay(); ws[d] += x.terjual; ww[d] += x.kedaluwarsa;
-  });
-  var laba = rev - cost, pct = function (a, b) { return b ? Math.round(a / b * 100) : 0; };
+  var r2 = await sb.rpc("laporan_harian", { p_dari: tambahHari(dari, -len), p_sampai: tambahHari(dari, -1) });
+  var rows = r.data || [], a = ringkas(rows), b = ringkas(r2.data || []);
+  var laba = a.rev - a.cost;
+
   $("kpis").innerHTML =
-    '<div class="kpi"><span>Total biaya produksi</span><b>' + rp(cost) + "</b></div>" +
-    '<div class="kpi"><span>Total pendapatan</span><b>' + rp(rev) + "</b></div>" +
-    '<div class="kpi bad"><span>Kerugian produk kedaluwarsa</span><b>' + rp(loss) + "</b></div>" +
+    '<div class="kpi"><span>Total biaya produksi</span><b>' + rp(a.cost) + "</b></div>" +
+    '<div class="kpi"><span>Pendapatan bersih</span><b>' + rp(a.rev) + "</b></div>" +
+    '<div class="kpi bad"><span>Kerugian kedaluwarsa dan rusak</span><b>' + rp(a.loss) + "</b></div>" +
+    '<div class="kpi bad"><span>Refund</span><b>' + rp(a.rn) + " (" + a.ru + " unit)</b></div>" +
     '<div class="kpi ' + (laba >= 0 ? "good" : "bad") + '"><span>Laba bersih</span><b>' + rp(laba) + "</b></div>";
-  var mx = Math.max.apply(null, ws.concat(ww).concat([1])), bs = 0, bw = 0, h = "";
-  for (var d = 1; d < 7; d++) { if (ws[d] > ws[bs]) bs = d; if (ww[d] > ww[bw]) bw = d; }
-  [1,2,3,4,5,6,0].forEach(function (d) {
-    h += '<div class="wd"><span>' + HR[d] + '</span><div class="tr"><i class="s" style="width:' + ws[d] / mx * 100 + '%"></i><i class="w" style="width:' + ww[d] / mx * 100 + '%"></i></div><span class="meta">' + ws[d] + " / " + ww[d] + "</span></div>";
-  });
-  $("wd").innerHTML = h;
-  $("narasi").hidden = false;
-  $("narasi").textContent = "Pada periode " + rows.length + " hari, tercatat " + prod + " unit diproduksi dan " + sold + " unit terjual (" + pct(sold, prod) + "%). Sebanyak " + wq + " unit (" + pct(wq, prod) + "%) kedaluwarsa dengan kerugian " + rp(loss) + ", sekitar " + pct(loss, cost) + "% dari total biaya produksi. Penjualan tertinggi terjadi pada hari " + HR[bs] + ", sedangkan produk kedaluwarsa paling banyak pada hari " + HR[bw] + ". Laba bersih periode ini " + rp(laba) + ".";
-  $("wk").innerHTML = rows.slice().reverse().map(function (x) {
-    return "<tr><td>" + tgl(x.tanggal) + "</td><td>" + x.diproduksi + "</td><td>" + x.terjual + "</td><td>" + x.kedaluwarsa + "</td><td>" + rp(x.pendapatan) + "</td><td>" + rp(x.kerugian) + "</td></tr>";
+
+  var bandingan = [arah(a.rev, b.rev, "pendapatan"), arah(a.sold, b.sold, "unit terjual"), arah(a.loss, b.loss, "kerugian")].filter(Boolean);
+  $("banding").textContent = bandingan.length
+    ? "Dibanding " + len + " hari sebelumnya: " + bandingan.join(", ") + "."
+    : "Belum ada data pada " + len + " hari sebelumnya untuk dibandingkan.";
+
+  // Perbandingan hari dalam seminggu (rata-rata per hari tercatat)
+  var hari = [];
+  a.wd.forEach(function (w, d) { if (w.n) hari.push({ d: d, n: w.n, u: w.u / w.n, r: w.r / w.n, w: w.w / w.n }); });
+  var urut = hari.slice().sort(function (x, y) { return y.r - x.r; });
+  $("cmp").innerHTML = urut.map(function (x, i) {
+    var lab = i === 0 ? '<span class="lab best">Paling laku</span>' : (i === urut.length - 1 && urut.length > 1 ? '<span class="lab worst">Paling sepi</span>' : "");
+    return "<tr><td>" + HR[x.d] + "</td><td>" + x.n + "</td><td>" + x.u.toFixed(1) + " unit</td><td>" + rp(x.r) + "</td><td>" + x.w.toFixed(1) + " unit</td><td>" + lab + "</td></tr>";
+  }).join("") || '<tr><td colspan="6">Belum ada data.</td></tr>';
+  var mx = Math.max.apply(null, hari.map(function (x) { return Math.max(x.u, x.w); }).concat([1]));
+  $("wd").innerHTML = [1,2,3,4,5,6,0].map(function (d) {
+    var x = hari.filter(function (y) { return y.d === d; })[0] || { u: 0, w: 0 };
+    return '<div class="wd"><span>' + HR[d] + '</span><div class="tr"><i class="s" style="width:' + x.u / mx * 100 + '%"></i><i class="w" style="width:' + x.w / mx * 100 + '%"></i></div><span class="meta">' + x.u.toFixed(1) + " / " + x.w.toFixed(1) + "</span></div>";
   }).join("");
+
+  var teks = "Pada periode " + len + " hari, tercatat " + a.prod + " unit diproduksi dan " + a.sold + " unit terjual (" + pct(a.sold, a.prod) + "%). Sebanyak " + a.wq + " unit kedaluwarsa dan total kerugian produk (termasuk rusak) sebesar " + rp(a.loss) + ", sekitar " + pct(a.loss, a.cost) + "% dari biaya produksi.";
+  if (urut.length > 1) teks += " Hari paling laku adalah " + HR[urut[0].d] + " dan hari paling sepi adalah " + HR[urut[urut.length - 1].d] + ".";
+  teks += " Laba bersih periode ini " + rp(laba) + ".";
+  $("narasi").hidden = false; $("narasi").textContent = teks;
+
+  $("wk").innerHTML = rows.slice().reverse().map(function (x) {
+    return "<tr><td>" + tgl(x.tanggal) + "</td><td>" + x.diproduksi + "</td><td>" + x.terjual + "</td><td>" + x.kedaluwarsa + "</td><td>" + rp(x.pendapatan) + "</td><td>" + (x.refund_unit ? x.refund_unit + " unit, " + rp(x.refund_nilai) : "-") + "</td></tr>";
+  }).join("");
+};
+
+// ---------- Koreksi, refund, reset (owner) ----------
+var barisKoreksi = [];
+$("kgo").onclick = function () { muatKoreksi(); };
+
+async function muatKoreksi() {
+  var r = await sb.rpc("daftar_penjualan", { p_tanggal: $("kd").value });
+  if (r.error) return say(r.error.message, false);
+  barisKoreksi = r.data || [];
+  $("kList").innerHTML = barisKoreksi.map(function (x, i) {
+    return "<tr><td>" + jam(x.dibuat) + "</td><td>" + esc(x.produk) + (x.dikoreksi ? ' <span class="lab worst">dikoreksi</span>' : "") + "</td><td>" + x.jumlah + "</td><td>" + rp(x.harga_per_unit) + "</td><td>" +
+      (x.metode_bayar === "qris" ? "QRIS " + esc(x.ref_qris || "") : "Tunai") + "</td><td>" + (x.refund_unit ? x.refund_unit + " unit, " + rp(x.refund_nilai) : "-") +
+      '</td><td><button class="mini" data-a="refund" data-i="' + i + '">Refund</button> <button class="mini alt" data-a="koreksi" data-i="' + i + '">Koreksi</button></td></tr>';
+  }).join("") || '<tr><td colspan="7">Tidak ada penjualan pada tanggal ini.</td></tr>';
+  $("kList").querySelectorAll("button").forEach(function (b) {
+    b.onclick = function () { (b.dataset.a === "refund" ? refund : koreksi)(barisKoreksi[+b.dataset.i]); };
+  });
+}
+
+async function refund(x) {
+  var maks = x.jumlah - x.refund_unit;
+  if (maks < 1) return say("Penjualan ini sudah di-refund seluruhnya.", false);
+  var j = prompt("Jumlah unit yang di-refund (maksimal " + maks + ")", "1"); if (!j) return;
+  var alasan = prompt("Alasan refund (wajib diisi)"); if (!alasan) return say("Refund dibatalkan karena alasan kosong.", false);
+  var stok = confirm("Barang masih layak jual dan dikembalikan ke stok?\n\nOK = kembali ke stok\nBatal = barang rusak atau dibuang, dicatat sebagai kerugian");
+  var r = await sb.rpc("refund_penjualan", { p_sale: x.id, p_jumlah: Math.floor(+j), p_alasan: alasan, p_kembalikan_stok: stok });
+  if (r.error) return say(r.error.message, false);
+  say("Refund " + rp(r.data.nilai) + " tercatat. " + r.data.ke_stok + " unit kembali ke stok, " + r.data.dibuang + " unit dicatat sebagai kerugian.", true);
+  muatKoreksi(); muatAudit();
+}
+
+async function koreksi(x) {
+  var j = prompt("Jumlah unit yang benar", x.jumlah); if (!j) return;
+  var h = prompt("Harga per unit yang benar", x.harga_per_unit); if (h === null || h === "") return;
+  var alasan = prompt("Alasan koreksi (wajib diisi)"); if (!alasan) return say("Koreksi dibatalkan karena alasan kosong.", false);
+  var r = await sb.rpc("koreksi_penjualan", { p_sale: x.id, p_jumlah_baru: Math.floor(+j), p_harga_baru: Math.floor(+h), p_alasan: alasan });
+  if (r.error) return say(r.error.message, false);
+  say("Penjualan berhasil dikoreksi. Stok tidak berubah.", true);
+  muatKoreksi(); muatAudit();
+}
+
+$("kreset").onclick = async function () {
+  if (!confirm("Reset semua penjualan dan produksi yang tercatat HARI INI?\n\nStok dikembalikan seperti sebelum hari ini. Tindakan ini tidak bisa dibatalkan.")) return;
+  if (prompt("Ketik RESET untuk melanjutkan") !== "RESET") return say("Reset dibatalkan.", false);
+  var r = await sb.rpc("reset_hari_ini");
+  if (r.error) return say(r.error.message, false);
+  say("Reset selesai. " + r.data.penjualan_dihapus + " penjualan dan " + r.data.produksi_dihapus + " produksi hari ini dihapus.", true);
+  muatKoreksi(); muatAudit();
+};
+
+function uraiAudit(a) {
+  var d = a.detail || {};
+  if (a.aksi === "refund") return "Penjualan #" + d.sale_id + ", " + d.jumlah + " unit, " + rp(d.nilai) + ". Alasan: " + (d.alasan || "-");
+  if (a.aksi === "koreksi_penjualan") return "Penjualan #" + d.sale_id + " (" + d.tanggal + "): jumlah " + d.lama.jumlah + " menjadi " + d.baru.jumlah + ", harga " + d.lama.harga + " menjadi " + d.baru.harga + ". Alasan: " + (d.alasan || "-");
+  if (a.aksi === "reset_hari_ini") return d.penjualan_dihapus + " penjualan dan " + d.produksi_dihapus + " produksi dihapus (" + d.tanggal + ")";
+  return "";
+}
+
+async function muatAudit() {
+  var r = await sb.rpc("riwayat_audit", { p_limit: 30 });
+  if (r.error) return say(r.error.message, false);
+  $("aud").innerHTML = (r.data || []).map(function (a) {
+    return "<tr><td>" + new Date(a.waktu).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "short", timeStyle: "short" }) + "</td><td>" + esc(a.pelaku) + "</td><td>" + esc(a.aksi) + "</td><td>" + esc(uraiAudit(a)) + "</td></tr>";
+  }).join("") || '<tr><td colspan="4">Belum ada perubahan tercatat.</td></tr>';
+}
+
+// ---------- Pencocokan QRIS (owner) ----------
+$("qgo").onclick = async function () {
+  var r = await sb.rpc("daftar_qris", { p_dari: $("qd").value, p_sampai: $("qs").value });
+  if (r.error) return say(r.error.message, false);
+  var app = Object.create(null), sis = Object.create(null);
+  $("qdata").value.split(/\r?\n/).forEach(function (l) {
+    var p = l.split(/[,;\t]/); if (p.length < 2) return;
+    var ref = p[0].trim(), n = parseInt(p[1].replace(/\D/g, ""), 10);
+    if (ref && !isNaN(n)) app[ref] = n;
+  });
+  var sistem = r.data || [], cocok = [], beda = [], hanyaSistem = [], hanyaApp = [];
+  sistem.forEach(function (x) { sis[x.ref_qris] = +x.nilai; });
+  sistem.forEach(function (x) {
+    if (!(x.ref_qris in app)) hanyaSistem.push(x);
+    else if (app[x.ref_qris] === +x.nilai) cocok.push(x);
+    else beda.push(x);
+  });
+  Object.keys(app).forEach(function (ref) { if (!(ref in sis)) hanyaApp.push({ ref: ref, nilai: app[ref] }); });
+  function blok(judul, kelas, baris) {
+    return '<h3>' + judul + " (" + baris.length + ")</h3>" + (baris.length ? '<div class="scroll"><table><tbody>' + baris.join("") + "</tbody></table></div>" : '<p class="meta">Tidak ada.</p>');
+  }
+  var sRow = function (x) { return "<tr><td>" + esc(x.ref_qris) + "</td><td>" + tgl(x.tanggal) + "</td><td>" + esc(x.produk) + "</td><td>" + rp(x.nilai) + "</td></tr>"; };
+  $("qHasil").innerHTML =
+    blok("Cocok", "ok", cocok.map(sRow)) +
+    blok("Nilai berbeda antara sistem dan aplikasi QRIS", "beda", beda.map(function (x) { return "<tr><td>" + esc(x.ref_qris) + "</td><td>" + tgl(x.tanggal) + "</td><td>Sistem " + rp(x.nilai) + "</td><td>Aplikasi " + rp(app[x.ref_qris]) + "</td></tr>"; })) +
+    blok("Ada di sistem, tidak ada di daftar aplikasi QRIS", "sis", hanyaSistem.map(sRow)) +
+    blok("Ada di aplikasi QRIS, belum tercatat di sistem", "app", hanyaApp.map(function (x) { return "<tr><td>" + esc(x.ref) + "</td><td>" + rp(x.nilai) + "</td></tr>"; }));
 };
 
 // ---------- Kelola produk (owner) ----------
